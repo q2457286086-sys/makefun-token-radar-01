@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols, ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Token Radar</h1>
+  <p class="sub">Pre-token protocols, ranked by what their token would be worth if it traded like the ones that already do.</p>
+  <p class="meta" id="meta"></p>
+</header>
+
+<section class="model" id="model"></section>
+
+<section class="controls">
+  <input id="q" type="search" placeholder="Search a protocol…" autocomplete="off">
+  <select id="cat" aria-label="Category"></select>
+  <select id="chain" aria-label="Chain"></select>
+  <div class="scope" role="group" aria-label="Scope">
+    <button data-scope="all" class="on">All</button>
+    <button data-scope="watchlist">Watchlist</button>
+    <button data-scope="early">Early radar</button>
+    <button data-scope="live">Live tokens</button>
+  </div>
+  <span class="count" id="count"></span>
+</section>
+
+<main>
+  <table id="board">
+    <thead><tr>
+      <th>#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+      <th class="num">TVL</th><th class="num">7d</th><th class="num">Implied value</th><th class="num">Age</th><th class="num">× multiple</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="empty" id="empty" hidden>No protocol matches these filters.</p>
+
+  <section id="detail" class="detail" hidden></section>
+
+  <section class="live" id="liveSec" hidden>
+    <h2>Live tokens — the market's own values</h2>
+    <p class="note">These protocols already trade. They are not ranked here; their market caps are the raw material the category multiples are computed from.</p>
+    <table>
+      <thead><tr><th>Protocol</th><th>Category</th><th>Chains</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">mcap / TVL</th><th class="num">7d</th></tr></thead>
+      <tbody id="liveRows"></tbody>
+    </table>
+  </section>
+</main>
+
+<footer>
+  <p>Implied value is a model estimate from one frozen snapshot, not a price and not investment advice. A protocol can stay tokenless forever, and a token can launch far below any multiple the market has paid before.</p>
+  <p id="src"></p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
