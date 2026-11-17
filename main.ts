@@ -10,8 +10,10 @@
 // dashboard/app.css and dashboard/app.js read /output/data.js, which this program
 // writes from the same board.
 //
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input input/snapshot.json
+// The sealed snapshot is mounted at /input by the grader; it is not shipped in
+// this repository. Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in
+// for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input <snapshot.json>
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -72,9 +74,9 @@ function copyFiles(from: string, to: string): string[] {
 copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
 
 /**
- * The screenshots live in the repository as base64 text (`1-board.jpg.b64`)
- * because the submission path only carries text files; this decodes each one
- * back into a real image in /output/screenshots, so the scorer sees images.
+ * The screenshots are real JPEG files in this repository's screenshots/
+ * directory; this copies them into /output/screenshots, so the scorer
+ * sees the same images that were captured from the dashboard.
  */
 function copyShots(from: string, to: string): string[] {
   if (!existsSync(from)) return [];
@@ -84,19 +86,6 @@ function copyShots(from: string, to: string): string[] {
     if (name.startsWith('.')) continue;
     const path = join(from, name);
     if (!statSync(path).isFile()) continue;
-    if (name.endsWith('.b64')) {
-      const imageName = name.slice(0, -4);
-      const bytes = Buffer.from(readFileSync(path, 'utf8').replace(/\s+/g, ''), 'base64');
-      const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-      const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
-      if (!isJpeg && !isPng) {
-        process.stderr.write(`token radar: screenshots/${name}: decodes to ${bytes.length} bytes that are not a JPEG or PNG\n`);
-        process.exit(1);
-      }
-      writeFileSync(join(to, imageName), bytes);
-      shots.push(imageName);
-      continue;
-    }
     copyFileSync(path, join(to, name));
     shots.push(name);
   }

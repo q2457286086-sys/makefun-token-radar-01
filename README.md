@@ -9,8 +9,10 @@ Pre-token protocols, ranked by what their token would be worth if it traded like
 ## Run it
 
 ```sh
-MAKEFUN_OUTPUT_DIR=out node main.ts --input input/snapshot.json
+MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
+
+The sealed snapshot is mounted at `/input/snapshot.json` by the grader; it is not shipped in this repository. To run locally, pass a copy with `--input <snapshot.json>`.
 
 ---
 
@@ -44,14 +46,14 @@ The board ranks 200 protocols: the 40-protocol watchlist first, then 160 early f
 Node 22, standard library only — no dependencies, no network:
 
 ```sh
-MAKEFUN_OUTPUT_DIR=out node main.ts --input input/snapshot.json
+MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
 That writes `out/board.json` (the 200 ranked rows), `out/data.js` (the data the dashboard reads), `out/dashboard/` (the static page), `out/screenshots/` (the three views below) and `out/dossier.json` (the summary the judge reads).
 
 ## Screenshots
 
-The three screenshots in this repository are stored as base64 text (`screenshots/*.jpg.b64`) because the submission path only carries text files. `main.ts` decodes each one back into a real JPEG in `/output/screenshots` at runtime, and refuses anything that does not decode to a JPEG or PNG.
+The three screenshots in this repository are real JPEGs, captured from the dashboard running on the sealed snapshot. `main.ts` copies them into `/output/screenshots` at runtime.
 
 1. `1-board.jpg` — the board: the ranked table with the filter controls.
 2. `2-detail.jpg` — the detail view: #1 Steakhouse Financial with its full 7-step farm plan.
@@ -65,8 +67,7 @@ The three screenshots in this repository are stored as base64 text (`screenshots
 | `lib/model.ts` | The radar-2 model, the board builder and the dashboard data. |
 | `vendor/makefun-board.ts` | The official make.fun board library, copied verbatim. |
 | `dashboard/` | The static page: `index.html`, `app.css`, `app.js`. |
-| `input/snapshot.json` | The sealed DefiLlama snapshot, 2026-11-14, 758 protocols. |
-| `screenshots/` | The three views, base64 text (see above). |
+| `screenshots/` | The three views, real JPEGs (see above). |
 
 ## Caveats, stated plainly
 
