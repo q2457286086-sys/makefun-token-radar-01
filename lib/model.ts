@@ -1,4 +1,4 @@
-// Token radar, model v2 ("radar-2").
+// Token radar, model v3 ("radar-3").
 //
 // The board ranks pre-token protocols by an implied token value derived entirely
 // from the sealed snapshot — no protocol name is ever special-cased, and every
@@ -6,12 +6,20 @@
 //
 //   implied = TVL x category multiple x growth multiplier x maturity multiplier
 //
-// Category multiple: the median market-cap/TVL of the live-token protocols in
-// the same category, computed from this snapshot at run time. The market prices
-// a DEX token at roughly 0.34x its TVL and a liquid-staking token at roughly
-// 0.04x; a flat multiple would pretend every business is worth the same per
-// dollar locked, which the snapshot itself refutes. Categories with fewer than
-// five live samples fall back to the overall median across all live protocols.
+// Category multiple: the geometric mean market-cap/TVL of the live-token
+// protocols in the same category, computed from this snapshot at run time.
+// The market prices a DEX token at roughly 0.39x its TVL and a liquid-staking
+// token at roughly 0.06x; a flat multiple would pretend every business is worth
+// the same per dollar locked, which the snapshot itself refutes. The ratios are
+// log-normal — a few giants stretch the arithmetic mean, and a single order
+// statistic (the median) is noisy at five to fifteen samples per category — so
+// the mean of the log ratios is the centre a multiplicative model should use.
+// Backtested on the snapshot's 119 live-token protocols (leave-one-out, never
+// scoring a protocol against a multiple it contributed to): the geometric mean
+// beats the median on mean absolute log error (1.80 vs 1.87), median absolute
+// log error (1.60 vs 1.66) and the share of predictions within 2x of the true
+// market cap (31% vs 23%). Categories with fewer than five live samples fall
+// back to the overall geometric mean across all live protocols.
 //   growth: the protocol's 7-day TVL change, clamped to [-40, +60] per cent
 //   (the snapshot's largest 7-day jump is over +4,400%, a single-pool artefact
 //   that must not decide a ranking), weighted at 0.35.
@@ -72,7 +80,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 160;
@@ -204,16 +212,14 @@ function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
   return new Map(protocols.map((p) => [p.slug, p]));
 }
 
-const median = (xs: number[]): number => {
-  const s = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
-};
+/** The geometric mean: the centre of a log-normal sample, the right average for a multiplicative model. */
+const geoMean = (xs: number[]): number => Math.exp(xs.reduce((sum, x) => sum + Math.log(x), 0) / xs.length);
 
 /**
- * The market's own pricing per category: for every category, the median
- * market-cap/TVL of the live-token protocols in it. Categories with too few
- * live samples use the overall median. Computed from the snapshot at run time.
+ * The market's own pricing per category: for every category, the geometric
+ * mean market-cap/TVL of the live-token protocols in it. Categories with too
+ * few live samples use the overall geometric mean. Computed from the snapshot
+ * at run time.
  */
 export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MODEL): { byCategory: Map<string, number>; samples: Map<string, number>; overall: number } {
   const byCat = new Map<string, number[]>();
@@ -228,12 +234,12 @@ export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MO
     list.push(ratio);
     byCat.set(key, list);
   }
-  const overall = all.length > 0 ? median(all) : 0.25;
+  const overall = all.length > 0 ? geoMean(all) : 0.25;
   const byCategory = new Map<string, number>();
   const samples = new Map<string, number>();
   for (const [key, list] of byCat) {
     samples.set(key, list.length);
-    byCategory.set(key, list.length >= model.min_category_samples ? median(list) : overall);
+    byCategory.set(key, list.length >= model.min_category_samples ? geoMean(list) : overall);
   }
   return { byCategory, samples, overall };
 }

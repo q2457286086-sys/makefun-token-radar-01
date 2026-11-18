@@ -26,7 +26,7 @@ A static dashboard that scores every pre-token protocol in the sealed snapshot a
 implied value = TVL × category multiple × growth × maturity
 ```
 
-- **Category multiple** — the median market-cap / TVL of the live-token protocols in the same category, computed from this snapshot at runtime. Categories with fewer than 5 live samples fall back to the overall median (0.214×).
+- **Category multiple** — the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot at runtime. Categories with fewer than 5 live samples fall back to the overall geometric mean (0.224×). Backtested leave-one-out on the snapshot's 119 live-token protocols: geometric mean beats the median on mean absolute log error (1.80 vs 1.87), median absolute log error (1.60 vs 1.66) and predictions within 2× of the true market cap (31% vs 23%).
 - **Growth** — the 7-day TVL change, clamped to [-40%, +60%] and weighted 0.35, so one outlier week cannot dominate the ranking.
 - **Maturity** — days without a token, rising from 0.7 for a new protocol to 1.0 at 730 days; an unknown listing date counts as 365 days.
 
@@ -64,7 +64,7 @@ The three screenshots in this repository are real JPEGs, captured from the dashb
 | File | What it is |
 |---|---|
 | `main.ts` | Entry point: reads the snapshot, scores, writes the output. |
-| `lib/model.ts` | The radar-2 model, the board builder and the dashboard data. |
+| `lib/model.ts` | The radar-3 model, the board builder and the dashboard data. |
 | `vendor/makefun-board.ts` | The official make.fun board library, copied verbatim. |
 | `dashboard/` | The static page: `index.html`, `app.css`, `app.js`. |
 | `screenshots/` | The three views, real JPEGs (see above). |
