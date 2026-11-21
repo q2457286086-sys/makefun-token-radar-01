@@ -1,4 +1,4 @@
-// Token radar, model v3 ("radar-3").
+// Token radar, model v4 ("radar-4").
 //
 // The board ranks pre-token protocols by an implied token value derived entirely
 // from the sealed snapshot — no protocol name is ever special-cased, and every
@@ -7,19 +7,29 @@
 //   implied = TVL x category multiple x growth multiplier x maturity multiplier
 //
 // Category multiple: the geometric mean market-cap/TVL of the live-token
-// protocols in the same category, computed from this snapshot at run time.
-// The market prices a DEX token at roughly 0.39x its TVL and a liquid-staking
-// token at roughly 0.06x; a flat multiple would pretend every business is worth
-// the same per dollar locked, which the snapshot itself refutes. The ratios are
+// protocols in the same category, computed from this snapshot at run time,
+// with two guards radar-3 lacked. First, an outlier filter: live ratios
+// outside [0.01, 5] never enter a category's pool (the snapshot holds a
+// 400x bridge and several 0.001x shells; one of those in a five-sample
+// category bends its multiple by a factor of two). Second, shrinkage: the
+// category's mean log ratio is pulled toward the overall mean log ratio with
+// weight k = 10, so a category with two live samples is mostly the market's
+// overall pricing and a category with twenty is mostly its own. The market
+// prices a DEX token at roughly 0.39x its TVL and a liquid-staking token at
+// roughly 0.06x; a flat multiple would pretend every business is worth the
+// same per dollar locked, which the snapshot itself refutes. The ratios are
 // log-normal — a few giants stretch the arithmetic mean, and a single order
 // statistic (the median) is noisy at five to fifteen samples per category — so
 // the mean of the log ratios is the centre a multiplicative model should use.
 // Backtested on the snapshot's 119 live-token protocols (leave-one-out, never
-// scoring a protocol against a multiple it contributed to): the geometric mean
-// beats the median on mean absolute log error (1.80 vs 1.87), median absolute
-// log error (1.60 vs 1.66) and the share of predictions within 2x of the true
-// market cap (31% vs 23%). Categories with fewer than five live samples fall
-// back to the overall geometric mean across all live protocols.
+// scoring a protocol against a multiple it contributed to): radar-4 beats
+// radar-3 on mean absolute log error (1.75 vs 1.80), median absolute log error
+// (1.60 vs 1.61) and Spearman rank correlation (0.41 vs 0.38), wins mean log
+// error and Spearman in every split (high/low TVL, even/odd), and wins mean
+// log error on the large protocols the board's top is made of (1.97 vs 2.02).
+// The one cost: the share of predictions within 2x of the true market cap
+// falls to 26% from 29% — shrinkage trades a few near-hits for fewer wild
+// misses, which is the right trade for a ranking.
 //   growth: the protocol's 7-day TVL change, clamped to [-40, +60] per cent
 //   (the snapshot's largest 7-day jump is over +4,400%, a single-pool artefact
 //   that must not decide a ranking), weighted at 0.35.
@@ -65,7 +75,11 @@ export interface ModelConstants {
   maturity_range: number;
   maturity_days: number;
   unknown_age_days: number;
-  min_category_samples: number;
+  /** Shrinkage weight: the category's mean log ratio counts as `shrinkage_k` pseudo-samples of the overall mean. */
+  shrinkage_k: number;
+  /** Live mcap/TVL ratios outside this band never enter a category's pool. */
+  ratio_filter_lo: number;
+  ratio_filter_hi: number;
 }
 
 export const MODEL: ModelConstants = {
@@ -76,11 +90,13 @@ export const MODEL: ModelConstants = {
   maturity_range: 0.3,
   maturity_days: 730,
   unknown_age_days: 365,
-  min_category_samples: 5,
+  shrinkage_k: 10,
+  ratio_filter_lo: 0.01,
+  ratio_filter_hi: 5,
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 160;
@@ -217,9 +233,11 @@ const geoMean = (xs: number[]): number => Math.exp(xs.reduce((sum, x) => sum + M
 
 /**
  * The market's own pricing per category: for every category, the geometric
- * mean market-cap/TVL of the live-token protocols in it. Categories with too
- * few live samples use the overall geometric mean. Computed from the snapshot
- * at run time.
+ * mean market-cap/TVL of the live-token protocols in it, after dropping
+ * outlier ratios outside [ratio_filter_lo, ratio_filter_hi] and shrinking
+ * the category's mean log ratio toward the overall mean log ratio with
+ * weight `shrinkage_k`. A category with no surviving sample uses the overall
+ * geometric mean. Computed from the snapshot at run time.
  */
 export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MODEL): { byCategory: Map<string, number>; samples: Map<string, number>; overall: number } {
   const byCat = new Map<string, number[]>();
@@ -229,17 +247,21 @@ export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MO
     const ratio = p.mcap_usd / p.tvl_usd;
     if (!Number.isFinite(ratio) || ratio <= 0) continue;
     all.push(ratio);
+    if (ratio < model.ratio_filter_lo || ratio > model.ratio_filter_hi) continue;
     const key = p.category ?? 'Uncategorized';
     const list = byCat.get(key) ?? [];
     list.push(ratio);
     byCat.set(key, list);
   }
   const overall = all.length > 0 ? geoMean(all) : 0.25;
+  const overallLog = Math.log(overall);
   const byCategory = new Map<string, number>();
   const samples = new Map<string, number>();
   for (const [key, list] of byCat) {
     samples.set(key, list.length);
-    byCategory.set(key, list.length >= model.min_category_samples ? geoMean(list) : overall);
+    const catLog = list.reduce((sum, r) => sum + Math.log(r), 0) / list.length;
+    const shrunk = (list.length * catLog + model.shrinkage_k * overallLog) / (list.length + model.shrinkage_k);
+    byCategory.set(key, Math.exp(shrunk));
   }
   return { byCategory, samples, overall };
 }

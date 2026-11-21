@@ -38,7 +38,7 @@
     '<h2>How a row is valued — model ' + esc(R.model_version) + '</h2>' +
     '<p><code>implied value = TVL × category multiple × growth × maturity</code></p>' +
     '<p>The category multiple is the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot. ' +
-    'Categories with fewer than ' + m.min_category_samples + ' live samples use the overall geometric mean of ' + R.overall_multiple.toFixed(3) + '×. ' +
+    'Ratios outside [' + m.ratio_filter_lo + ', ' + m.ratio_filter_hi + '] never enter a category pool, and each category multiple is shrunk toward the overall geometric mean of ' + R.overall_multiple.toFixed(3) + '× with weight ' + m.shrinkage_k + '. ' +
     'Growth is the 7-day TVL change, clamped to [' + m.growth_floor + ', +' + m.growth_cap + ']% and weighted ' + m.growth_weight + '. ' +
     'Maturity rises from ' + m.maturity_floor + ' for a new protocol to ' + (m.maturity_floor + m.maturity_range) + ' at ' + m.maturity_days + ' days without a token; an unknown listing date counts as ' + m.unknown_age_days + ' days.</p>' +
     '<table><thead><tr><th>Category</th><th class="num">Multiple</th><th class="num">Samples</th></tr></thead><tbody>' + multRows + '</tbody></table>';

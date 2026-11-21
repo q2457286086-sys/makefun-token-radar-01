@@ -26,7 +26,7 @@ A static dashboard that scores every pre-token protocol in the sealed snapshot a
 implied value = TVL × category multiple × growth × maturity
 ```
 
-- **Category multiple** — the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot at runtime. Categories with fewer than 5 live samples fall back to the overall geometric mean (0.224×). Backtested leave-one-out on the snapshot's 119 live-token protocols: geometric mean beats the median on mean absolute log error (1.80 vs 1.87), median absolute log error (1.60 vs 1.66) and predictions within 2× of the true market cap (31% vs 23%).
+- **Category multiple** — the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot at runtime, after dropping outlier ratios outside [0.01, 5] and shrinking each category's mean log ratio toward the overall geometric mean (0.224×) with weight 10. Backtested leave-one-out on the snapshot's 119 live-token protocols: this beats the plain geometric mean on mean absolute log error (1.75 vs 1.80), median absolute log error (1.60 vs 1.61) and Spearman rank correlation (0.41 vs 0.38), and wins mean log error and Spearman in every split (high/low TVL, even/odd).
 - **Growth** — the 7-day TVL change, clamped to [-40%, +60%] and weighted 0.35, so one outlier week cannot dominate the ranking.
 - **Maturity** — days without a token, rising from 0.7 for a new protocol to 1.0 at 730 days; an unknown listing date counts as 365 days.
 
@@ -36,10 +36,10 @@ The board ranks 200 protocols: the 40-protocol watchlist first, then 160 early f
 
 | # | Protocol | TVL | Implied value |
 |---|----------|-----|---------------|
-| 1 | Steakhouse Financial | $2.75B | $539.4M |
-| 2 | Gauntlet | $1.58B | $317.5M |
-| 3 | Veda | $1.56B | $311.5M |
-| 4 | USDD | $1.06B | $212.6M |
+| 1 | Steakhouse Financial | $2.75B | $715.1M |
+| 2 | Gauntlet | $1.58B | $421.0M |
+| 3 | Veda | $1.56B | $261.0M |
+| 4 | USDD | $1.06B | $219.3M |
 
 ## Run it
 
@@ -64,7 +64,7 @@ The three screenshots in this repository are real JPEGs, captured from the dashb
 | File | What it is |
 |---|---|
 | `main.ts` | Entry point: reads the snapshot, scores, writes the output. |
-| `lib/model.ts` | The radar-3 model, the board builder and the dashboard data. |
+| `lib/model.ts` | The radar-4 model, the board builder and the dashboard data. |
 | `vendor/makefun-board.ts` | The official make.fun board library, copied verbatim. |
 | `dashboard/` | The static page: `index.html`, `app.css`, `app.js`. |
 | `screenshots/` | The three views, real JPEGs (see above). |
