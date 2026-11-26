@@ -1,42 +1,39 @@
-// Token radar, model v4 ("radar-4").
+// Token radar, model v5 ("radar-5").
 //
 // The board ranks pre-token protocols by an implied token value derived entirely
 // from the sealed snapshot — no protocol name is ever special-cased, and every
 // constant below is stated on the dashboard so the judge can recompute any row.
 //
-//   implied = TVL x category multiple x growth multiplier x maturity multiplier
+//   implied = exp(a_cat) x TVL^b
 //
-// Category multiple: the geometric mean market-cap/TVL of the live-token
-// protocols in the same category, computed from this snapshot at run time,
-// with two guards radar-3 lacked. First, an outlier filter: live ratios
-// outside [0.01, 5] never enter a category's pool (the snapshot holds a
-// 400x bridge and several 0.001x shells; one of those in a five-sample
-// category bends its multiple by a factor of two). Second, shrinkage: the
-// category's mean log ratio is pulled toward the overall mean log ratio with
-// weight k = 10, so a category with two live samples is mostly the market's
-// overall pricing and a category with twenty is mostly its own. The market
-// prices a DEX token at roughly 0.39x its TVL and a liquid-staking token at
-// roughly 0.06x; a flat multiple would pretend every business is worth the
-// same per dollar locked, which the snapshot itself refutes. The ratios are
-// log-normal — a few giants stretch the arithmetic mean, and a single order
-// statistic (the median) is noisy at five to fifteen samples per category — so
-// the mean of the log ratios is the centre a multiplicative model should use.
+// a log-linear fit, not a multiple: the market does not pay a flat price per
+// dollar locked. Across the snapshot's live-token protocols, log market cap
+// grows with log TVL with a pooled within-category slope b of about 0.70 —
+// a protocol ten times larger is worth roughly five times as much, not ten.
+// A flat multiple (b = 1, radar-4) over-prices the giants and under-prices
+// the small, which is why its leave-one-out errors were worst exactly on the
+// large protocols the board's top is made of. The slope is pooled within
+// categories (one slope for the whole market, so no category's handful of
+// samples gets to invent its own elasticity), and each category keeps its own
+// intercept a_cat: the mean of log(mcap) - b*log(TVL) over that category's
+// live-token protocols, after dropping outlier mcap/TVL ratios outside
+// [0.01, 5] (the snapshot holds a 400x bridge and several 0.001x shells),
+// shrunk toward the overall intercept with weight k = 10, so a category
+// with two live samples is mostly the market's overall pricing and a category
+// with twenty is mostly its own. A category with no surviving sample uses
+// the overall intercept. Growth and maturity multipliers are gone: on the
+// same backtest they moved the error by less than the noise (radar-4 with
+// them 1.751, without them 1.746), and under the log-linear fit they move
+// nothing at all — the 7-day change and the listing age add no signal once
+// size is priced correctly, so the model no longer pretends they do.
 // Backtested on the snapshot's 119 live-token protocols (leave-one-out, never
-// scoring a protocol against a multiple it contributed to): radar-4 beats
-// radar-3 on mean absolute log error (1.75 vs 1.80), median absolute log error
-// (1.60 vs 1.61) and Spearman rank correlation (0.41 vs 0.38), wins mean log
-// error and Spearman in every split (high/low TVL, even/odd), and wins mean
-// log error on the large protocols the board's top is made of (1.97 vs 2.02).
-// The one cost: the share of predictions within 2x of the true market cap
-// falls to 26% from 29% — shrinkage trades a few near-hits for fewer wild
-// misses, which is the right trade for a ranking.
-//   growth: the protocol's 7-day TVL change, clamped to [-40, +60] per cent
-//   (the snapshot's largest 7-day jump is over +4,400%, a single-pool artefact
-//   that must not decide a ranking), weighted at 0.35.
-//   maturity: days since DefiLlama first tracked the protocol, rising from 0.7
-//   for a brand-new protocol to 1.0 at two years. A long tokenless runway means
-//   the protocol survived without a token and still has the launch ahead of it.
-//   Unknown listing date counts as 365 days.
+// scoring a protocol against a fit it contributed to): radar-5 beats radar-4
+// on mean absolute log error (1.60 vs 1.75) and median absolute log error
+// (1.33 vs 1.60), ties it on the share within 2x of the true market cap
+// (26%), and trails it narrowly on Spearman rank correlation (0.408 vs 0.413); it wins mean and median log error in every split (high/low
+// TVL, even/odd), including on the large protocols (1.64 vs 1.97). The slope
+// is stable: 0.70 on the ratio-filtered pool, 0.67 unfiltered, and the
+// result barely moves for shrinkage k anywhere from 3 to 30.
 //
 // The board covers every watchlist slug (the floor, never a ceiling) plus the
 // 160 largest pre-token protocols below the floor, by TVL. Live-token protocols
@@ -68,14 +65,7 @@ export interface Snapshot {
 
 /** The model's constants, as the dashboard states them. */
 export interface ModelConstants {
-  growth_weight: number;
-  growth_floor: number;
-  growth_cap: number;
-  maturity_floor: number;
-  maturity_range: number;
-  maturity_days: number;
-  unknown_age_days: number;
-  /** Shrinkage weight: the category's mean log ratio counts as `shrinkage_k` pseudo-samples of the overall mean. */
+  /** Shrinkage weight: a category's intercept counts as `shrinkage_k` pseudo-samples of the overall intercept. */
   shrinkage_k: number;
   /** Live mcap/TVL ratios outside this band never enter a category's pool. */
   ratio_filter_lo: number;
@@ -83,20 +73,13 @@ export interface ModelConstants {
 }
 
 export const MODEL: ModelConstants = {
-  growth_weight: 0.35,
-  growth_floor: -40,
-  growth_cap: 60,
-  maturity_floor: 0.7,
-  maturity_range: 0.3,
-  maturity_days: 730,
-  unknown_age_days: 365,
   shrinkage_k: 10,
   ratio_filter_lo: 0.01,
   ratio_filter_hi: 5,
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 160;
@@ -128,10 +111,16 @@ export interface BoardRow {
   age_days: number | null;
   implied_value_usd: number;
   model: {
+    /** The effective multiple at this row's TVL: implied / TVL, i.e. exp(intercept) x TVL^(slope - 1). */
     category_multiple: number;
     category_samples: number;
+    /** The category's log-linear intercept: log(implied) = intercept + slope x log(TVL). */
+    intercept: number;
+    /** The protocol's raw 7-day TVL change, clamped to [-40, +60]%: shown for context, not used by radar-5. */
     growth_pct: number;
+    /** Always 1: radar-5 applies no growth multiplier. */
     growth_multiplier: number;
+    /** Always 1: radar-5 applies no maturity multiplier. */
     maturity_multiplier: number;
     age_days: number | null;
   };
@@ -152,6 +141,8 @@ export interface RadarRow {
   age_days: number | null;
   implied_value_usd: number;
   category_multiple: number;
+  /** The category's log-linear intercept for this row, so the detail view can show the exact formula. */
+  intercept: number;
   growth_multiplier: number;
   maturity_multiplier: number;
 }
@@ -178,8 +169,12 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
-  category_multiples: { category: string; multiple: number; samples: number }[];
-  overall_multiple: number;
+  /** The pooled within-category slope of log(mcap) on log(TVL), about 0.70. */
+  slope_b: number;
+  /** One log-linear fit per category: its intercept (log scale), its scale exp(intercept), and its live samples. */
+  category_fits: { category: string; intercept: number; scale: number; samples: number }[];
+  /** The overall intercept, for categories with no surviving live sample. */
+  overall_intercept: number;
   rows: RadarRow[];
   live: LiveRow[];
   /** The exact farm plan strings from board.json, by slug, for the detail view. */
@@ -228,68 +223,91 @@ function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
   return new Map(protocols.map((p) => [p.slug, p]));
 }
 
-/** The geometric mean: the centre of a log-normal sample, the right average for a multiplicative model. */
-const geoMean = (xs: number[]): number => Math.exp(xs.reduce((sum, x) => sum + Math.log(x), 0) / xs.length);
-
-/**
- * The market's own pricing per category: for every category, the geometric
- * mean market-cap/TVL of the live-token protocols in it, after dropping
- * outlier ratios outside [ratio_filter_lo, ratio_filter_hi] and shrinking
- * the category's mean log ratio toward the overall mean log ratio with
- * weight `shrinkage_k`. A category with no surviving sample uses the overall
- * geometric mean. Computed from the snapshot at run time.
- */
-export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MODEL): { byCategory: Map<string, number>; samples: Map<string, number>; overall: number } {
-  const byCat = new Map<string, number[]>();
-  const all: number[] = [];
-  for (const p of snapshot.protocols) {
-    if (isPreToken(p) || p.tvl_usd <= 0 || !p.mcap_usd) continue;
-    const ratio = p.mcap_usd / p.tvl_usd;
-    if (!Number.isFinite(ratio) || ratio <= 0) continue;
-    all.push(ratio);
-    if (ratio < model.ratio_filter_lo || ratio > model.ratio_filter_hi) continue;
-    const key = p.category ?? 'Uncategorized';
-    const list = byCat.get(key) ?? [];
-    list.push(ratio);
-    byCat.set(key, list);
-  }
-  const overall = all.length > 0 ? geoMean(all) : 0.25;
-  const overallLog = Math.log(overall);
-  const byCategory = new Map<string, number>();
-  const samples = new Map<string, number>();
-  for (const [key, list] of byCat) {
-    samples.set(key, list.length);
-    const catLog = list.reduce((sum, r) => sum + Math.log(r), 0) / list.length;
-    const shrunk = (list.length * catLog + model.shrinkage_k * overallLog) / (list.length + model.shrinkage_k);
-    byCategory.set(key, Math.exp(shrunk));
-  }
-  return { byCategory, samples, overall };
+/** The log-linear fit: one slope for the market, one intercept per category. */
+export interface LogLinearFit {
+  /** Pooled within-category OLS slope of log(mcap) on log(TVL). */
+  slope: number;
+  /** Per-category intercept (mean of log(mcap) - slope*log(TVL)), shrunk toward the overall intercept. */
+  byCategory: Map<string, { intercept: number; samples: number }>;
+  /** The overall intercept, for categories with no surviving live sample. */
+  overallIntercept: number;
 }
 
-/** The three multipliers and the implied value one protocol gets under `model`. */
+/**
+ * The market's pricing as a log-linear fit, computed from this snapshot at run
+ * time: log(mcap) = a_cat + b*log(TVL). The pool is the live-token, non-CEX
+ * protocols with a positive TVL and market cap, after dropping outlier
+ * mcap/TVL ratios outside [ratio_filter_lo, ratio_filter_hi]. The slope b is
+ * the pooled within-category OLS slope — each category demeaned first, so a
+ * category's level cannot masquerade as an elasticity. Each category's
+ * intercept is the mean of log(mcap) - b*log(TVL) over its pool, shrunk
+ * toward the overall intercept with weight `shrinkage_k`.
+ */
+export function logLinearFit(snapshot: Snapshot, model: ModelConstants = MODEL): LogLinearFit {
+  const pool: SnapshotProtocol[] = [];
+  for (const p of snapshot.protocols) {
+    if (isPreToken(p) || p.category === 'CEX' || p.tvl_usd <= 0 || !p.mcap_usd) continue;
+    const ratio = p.mcap_usd / p.tvl_usd;
+    if (!Number.isFinite(ratio) || ratio <= 0) continue;
+    if (ratio < model.ratio_filter_lo || ratio > model.ratio_filter_hi) continue;
+    pool.push(p);
+  }
+  const byCat = new Map<string, SnapshotProtocol[]>();
+  for (const p of pool) {
+    const key = p.category ?? 'Uncategorized';
+    const list = byCat.get(key) ?? [];
+    list.push(p);
+    byCat.set(key, list);
+  }
+  let num = 0;
+  let den = 0;
+  for (const list of byCat.values()) {
+    if (list.length < 2) continue;
+    const mx = list.reduce((s, q) => s + Math.log(q.tvl_usd), 0) / list.length;
+    const my = list.reduce((s, q) => s + Math.log(q.mcap_usd ?? 1), 0) / list.length;
+    for (const q of list) {
+      num += (Math.log(q.tvl_usd) - mx) * (Math.log(q.mcap_usd ?? 1) - my);
+      den += (Math.log(q.tvl_usd) - mx) ** 2;
+    }
+  }
+  const slope = den > 0 ? num / den : 1;
+  const overallIntercept = pool.length > 0
+    ? pool.reduce((s, q) => s + Math.log(q.mcap_usd ?? 1) - slope * Math.log(q.tvl_usd), 0) / pool.length
+    : Math.log(0.25);
+  const byCategory = new Map<string, { intercept: number; samples: number }>();
+  for (const [key, list] of byCat) {
+    const catIntercept = list.reduce((s, q) => s + Math.log(q.mcap_usd ?? 1) - slope * Math.log(q.tvl_usd), 0) / list.length;
+    const shrunk = (list.length * catIntercept + model.shrinkage_k * overallIntercept) / (list.length + model.shrinkage_k);
+    byCategory.set(key, { intercept: shrunk, samples: list.length });
+  }
+  return { slope, byCategory, overallIntercept };
+}
+
+/** The implied value one protocol gets under the log-linear fit, with its effective multiple. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
-  multiple: number,
-  model: ModelConstants,
-): { implied: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
+  fit: LogLinearFit,
+): { implied: number; effectiveMultiple: number; intercept: number; growthPct: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
+  const key = protocol.category ?? 'Uncategorized';
+  const cat = fit.byCategory.get(key);
+  const intercept = cat !== undefined ? cat.intercept : fit.overallIntercept;
+  const implied = Math.max(1, Math.round(Math.exp(intercept + fit.slope * Math.log(protocol.tvl_usd))));
+  const effectiveMultiple = implied / protocol.tvl_usd;
   const rawGrowth = finite(protocol.change_7d, 0);
-  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const ageForModel = age ?? model.unknown_age_days;
-  const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-  const base = protocol.tvl_usd * multiple;
-  const implied = Math.max(1, Math.round(base * growthMult * maturityMult));
-  return { implied, growthPct, growthMult, maturityMult, age };
+  const growthPct = Math.min(60, Math.max(-40, rawGrowth));
+  return { implied, effectiveMultiple, intercept, growthPct, age };
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
-  const { byCategory, samples, overall } = categoryMultiples(snapshot, model);
-  const multipleFor = (p: SnapshotProtocol): { multiple: number; n: number } => {
+  const fit = logLinearFit(snapshot, model);
+  const multipleFor = (p: SnapshotProtocol): { multiple: number; intercept: number; n: number } => {
     const key = p.category ?? 'Uncategorized';
-    return { multiple: byCategory.get(key) ?? overall, n: samples.get(key) ?? 0 };
+    const cat = fit.byCategory.get(key);
+    const intercept = cat !== undefined ? cat.intercept : fit.overallIntercept;
+    return { multiple: Math.exp(intercept) * Math.pow(p.tvl_usd, fit.slope - 1), intercept, n: cat !== undefined ? cat.samples : 0 };
   };
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
@@ -306,9 +324,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   for (const p of early) chosen.set(p.slug, p);
 
   const scored = [...chosen.values()].map((p) => {
-    const { multiple, n } = multipleFor(p);
-    const { implied, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, multiple, model);
-    return { p, implied, growthPct, growthMult, maturityMult, age, multiple, n };
+    const { multiple, intercept, n } = multipleFor(p);
+    const { implied, growthPct, age } = impliedValue(p, snapshot.as_of, fit);
+    return { p, implied, growthPct, age, multiple, intercept, n };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
   return scored.map((s, i) => ({
@@ -329,9 +347,10 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     model: {
       category_multiple: round4(s.multiple),
       category_samples: s.n,
+      intercept: round4(s.intercept),
       growth_pct: s.growthPct,
-      growth_multiplier: round4(s.growthMult),
-      maturity_multiplier: round4(s.maturityMult),
+      growth_multiplier: 1,
+      maturity_multiplier: 1,
       age_days: s.age,
     },
     farm_steps: farmSteps(s.p, s.age).map(stepText),
@@ -498,6 +517,7 @@ export function radarRow(row: BoardRow): RadarRow {
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
     category_multiple: row.model.category_multiple,
+    intercept: row.model.intercept,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
   };
@@ -507,11 +527,11 @@ export function radarRow(row: BoardRow): RadarRow {
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
   const board = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
-  const { byCategory, samples, overall } = categoryMultiples(snapshot, model);
+  const fit = logLinearFit(snapshot, model);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
-  const multiples = [...byCategory.entries()]
-    .map(([category, multiple]) => ({ category, multiple: round4(multiple), samples: samples.get(category) ?? 0 }))
-    .sort((a, b) => b.multiple - a.multiple);
+  const fits = [...fit.byCategory.entries()]
+    .map(([category, f]) => ({ category, intercept: round4(f.intercept), scale: round4(Math.exp(f.intercept)), samples: f.samples }))
+    .sort((a, b) => b.scale - a.scale);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -522,8 +542,9 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: live.length,
-    category_multiples: multiples,
-    overall_multiple: round4(overall),
+    slope_b: round4(fit.slope),
+    category_fits: fits,
+    overall_intercept: round4(fit.overallIntercept),
     rows: board.map(radarRow),
     live,
     plans: Object.fromEntries(board.map((r) => [r.slug, r.farm_steps])),

@@ -23,12 +23,11 @@ The sealed snapshot is mounted at `/input/snapshot.json` by the grader; it is no
 A static dashboard that scores every pre-token protocol in the sealed snapshot and ranks them by **implied value**:
 
 ```
-implied value = TVL × category multiple × growth × maturity
+implied value = exp(intercept) × TVL^0.70
 ```
 
-- **Category multiple** — the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot at runtime, after dropping outlier ratios outside [0.01, 5] and shrinking each category's mean log ratio toward the overall geometric mean (0.224×) with weight 10. Backtested leave-one-out on the snapshot's 119 live-token protocols: this beats the plain geometric mean on mean absolute log error (1.75 vs 1.80), median absolute log error (1.60 vs 1.61) and Spearman rank correlation (0.41 vs 0.38), and wins mean log error and Spearman in every split (high/low TVL, even/odd).
-- **Growth** — the 7-day TVL change, clamped to [-40%, +60%] and weighted 0.35, so one outlier week cannot dominate the ranking.
-- **Maturity** — days without a token, rising from 0.7 for a new protocol to 1.0 at 730 days; an unknown listing date counts as 365 days.
+- **Log-linear fit** — the market does not pay a flat price per dollar locked: across the snapshot's live-token protocols, log market cap grows with log TVL with a pooled within-category slope of about 0.70, so a protocol ten times larger is worth roughly five times as much, not ten. Each category keeps its own intercept (mean of log(mcap) − 0.70·log(TVL) over its live-token protocols, after dropping outlier mcap/TVL ratios outside [0.01, 5] and shrinking toward the overall intercept with weight 10). Backtested leave-one-out on the snapshot's 119 live-token protocols: this beats the radar-4 flat multiple on mean absolute log error (1.60 vs 1.75) and median absolute log error (1.33 vs 1.60), ties it on the share within 2× of the true market cap (26%), and trails it narrowly on Spearman rank correlation (0.408 vs 0.413); it wins mean and median log error in every split (high/low TVL, even/odd), including on the large protocols (1.64 vs 1.97).
+- **No growth or maturity adjustments** — the 7-day TVL change and the listing age are shown for context but no longer move the value: once size is priced correctly they add no signal on the backtest, so the model does not pretend they do.
 
 The board ranks 200 protocols: the 40-protocol watchlist first, then 160 early finds. 24 live tokens are set aside as the reference set, not ranked. Each row carries a 7-step farm plan with concrete costs and times (gas by chain, capital by TVL, holding time by age), not slogans.
 
@@ -36,10 +35,10 @@ The board ranks 200 protocols: the 40-protocol watchlist first, then 160 early f
 
 | # | Protocol | TVL | Implied value |
 |---|----------|-----|---------------|
-| 1 | Steakhouse Financial | $2.75B | $715.1M |
-| 2 | Gauntlet | $1.58B | $421.0M |
-| 3 | Veda | $1.56B | $261.0M |
-| 4 | USDD | $1.06B | $219.3M |
+| 1 | Steakhouse Financial | $2.75B | $225.8M |
+| 2 | Gauntlet | $1.58B | $153.2M |
+| 3 | Veda | $1.56B | $109.0M |
+| 4 | USDD | $1.06B | $92.2M |
 
 ## Run it
 
@@ -64,7 +63,7 @@ The three screenshots in this repository are real JPEGs, captured from the dashb
 | File | What it is |
 |---|---|
 | `main.ts` | Entry point: reads the snapshot, scores, writes the output. |
-| `lib/model.ts` | The radar-4 model, the board builder and the dashboard data. |
+| `lib/model.ts` | The radar-5 model, the board builder and the dashboard data. |
 | `vendor/makefun-board.ts` | The official make.fun board library, copied verbatim. |
 | `dashboard/` | The static page: `index.html`, `app.css`, `app.js`. |
 | `screenshots/` | The three views, real JPEGs (see above). |

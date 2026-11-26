@@ -31,17 +31,15 @@
 
   // ---- model box ----
   var m = R.model;
-  var multRows = R.category_multiples.map(function (c) {
-    return '<tr><td>' + esc(c.category) + '</td><td class="num">' + c.multiple.toFixed(3) + '×</td><td class="num">' + c.samples + ' live</td></tr>';
+  var multRows = R.category_fits.map(function (c) {
+    return '<tr><td>' + esc(c.category) + '</td><td class="num">' + c.scale.toFixed(2) + '</td><td class="num">' + c.samples + ' live</td></tr>';
   }).join('');
   $('#model').innerHTML =
     '<h2>How a row is valued — model ' + esc(R.model_version) + '</h2>' +
-    '<p><code>implied value = TVL × category multiple × growth × maturity</code></p>' +
-    '<p>The category multiple is the geometric mean market-cap / TVL of the live-token protocols in the same category, computed from this snapshot. ' +
-    'Ratios outside [' + m.ratio_filter_lo + ', ' + m.ratio_filter_hi + '] never enter a category pool, and each category multiple is shrunk toward the overall geometric mean of ' + R.overall_multiple.toFixed(3) + '× with weight ' + m.shrinkage_k + '. ' +
-    'Growth is the 7-day TVL change, clamped to [' + m.growth_floor + ', +' + m.growth_cap + ']% and weighted ' + m.growth_weight + '. ' +
-    'Maturity rises from ' + m.maturity_floor + ' for a new protocol to ' + (m.maturity_floor + m.maturity_range) + ' at ' + m.maturity_days + ' days without a token; an unknown listing date counts as ' + m.unknown_age_days + ' days.</p>' +
-    '<table><thead><tr><th>Category</th><th class="num">Multiple</th><th class="num">Samples</th></tr></thead><tbody>' + multRows + '</tbody></table>';
+    '<p><code>implied value = exp(intercept) × TVL^' + R.slope_b.toFixed(2) + '</code></p>' +
+    '<p>The market does not pay a flat price per dollar locked: across the live-token protocols in this snapshot, log market cap grows with log TVL with a pooled within-category slope of ' + R.slope_b.toFixed(2) + ' — a protocol ten times larger is worth roughly five times as much, not ten. Each category keeps its own intercept (the table below), the mean of log(mcap) − slope × log(TVL) over that category' + "'" + 's live-token protocols, after dropping outlier mcap/TVL ratios outside [' + m.ratio_filter_lo + ', ' + m.ratio_filter_hi + '] and shrinking toward the overall intercept of ' + R.overall_intercept.toFixed(2) + ' with weight ' + m.shrinkage_k + '. A category with no surviving live sample uses the overall intercept. ' +
+    'The 7-day TVL change and the listing age are shown for context but no longer move the value: once size is priced correctly they add no signal on the backtest, so the model does not pretend they do. The “× multiple” column in the board below is the effective multiple at that row' + "'" + 's TVL — implied value ÷ TVL — which falls as TVL rises because the slope is below 1.</p>' +
+    '<table><thead><tr><th>Category</th><th class="num">Scale exp(intercept)</th><th class="num">Samples</th></tr></thead><tbody>' + multRows + '</tbody></table>';
 
   // ---- filter controls ----
   var cats = [...new Set(R.rows.map(function (r) { return r.category || 'Uncategorized'; }))].sort();
@@ -118,7 +116,7 @@
       '<p class="facts">' + esc(r.category || 'Uncategorized') + ' · ' + esc(r.chains.join(', ')) +
       ' · TVL ' + usd(r.tvl_usd) + ' · 7d ' + (r.change_7d == null ? '—' : (r.change_7d > 0 ? '+' : '') + r.change_7d.toFixed(1) + '%') +
       ' · ' + age(r.age_days) + ' without a token · Implied value <b>' + usd(r.implied_value_usd) + '</b>' +
-      ' = TVL × ' + r.category_multiple.toFixed(3) + '× (category) × ' + r.growth_multiplier.toFixed(2) + ' (growth) × ' + r.maturity_multiplier.toFixed(2) + ' (maturity)</p>' +
+      ' = exp(' + r.intercept.toFixed(2) + ') × TVL^' + R.slope_b.toFixed(2) + ' (effective multiple ' + r.category_multiple.toFixed(3) + '× at this TVL)</p>' +
       '<ol>' + steps.map(function (s) {
         var parts = s.split(' Cost: ');
         var action = parts[0];
